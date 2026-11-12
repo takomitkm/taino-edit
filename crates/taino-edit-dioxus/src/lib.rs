@@ -162,7 +162,19 @@ pub fn TainoEditor(
 
     // On every state change, patch the DOM and re-sync the selection.
     use_effect(move || {
-        let snapshot = state.read().clone();
+        let mut snapshot = state.read().clone();
+        // C-candidate: snap a document-boundary caret (caret(0) from a freshly
+        // constructed EditorState) into the first textblock's content, so
+        // DOM-typing folds don't interleave backwards after a host replaces
+        // the whole state. The core-level fix (initial caret inside the first
+        // textblock) supersedes this; kept as an adapter-layer alternative.
+        // Limitation: position 1 assumes a textblock as the doc's first child.
+        if let Selection::Text { anchor: 0, head: 0 } = snapshot.selection() {
+            let mut tx = snapshot.tr();
+            tx.set_selection(Selection::caret(1)).no_history();
+            snapshot = snapshot.apply(tx);
+            state.set(snapshot.clone());
+        }
         if let Some(rt) = runtime.write().as_mut() {
             rt.view.update(snapshot.doc().clone());
             // Only re-sync the DOM selection when the editor is focused, so we
