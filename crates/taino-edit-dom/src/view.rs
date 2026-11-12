@@ -617,6 +617,35 @@ impl EditorView {
         let new_descs = patch_children(&document, &self.root, &self.children, &new_kids);
         self.children = new_descs;
         self.doc = new_doc;
+
+        // Re-anchor the DOM caret into the first textblock when the patch
+        // leaves it outside any textblock (e.g. after a host replaces the
+        // whole state and the fresh document's selection sits at the doc
+        // boundary). Without this, subsequent DOM-typing folds interleave
+        // backwards (characters inserted before their predecessors).
+        // Covers the `read_selection() == None` case (root-level caret);
+        // boundary points that map to a document position need the
+        // position-map semantics discussion in the PR.
+        if self.read_selection().is_none() {
+            let mut cur = 0usize;
+            let mut anchor_pos: Option<usize> = None;
+            for desc in self.children.iter() {
+                let n = desc.node();
+                let is_textblock = n
+                    .spec()
+                    .content
+                    .as_deref()
+                    .map_or(false, |c| c.starts_with("inline"));
+                if is_textblock {
+                    anchor_pos = Some(cur + 1);
+                    break;
+                }
+                cur += n.node_size();
+            }
+            if let Some(pos) = anchor_pos {
+                let _ = self.set_selection(Selection::caret(pos));
+            }
+        }
     }
 }
 
